@@ -34,30 +34,53 @@ pip install -r requirements.txt
 
 ## 使用方法
 
-```bash
-# 列出已连接的设备
-python main.py list
+设备需要先进入数据传输模式：**连续按 8 次充电宝按钮**（指示灯会进入特定状态），然后通过 USB 线连接电脑。
 
-# 显示设备基本信息
+```bash
+# 进入交互模式（保持连接，可持续执行多条命令）
+python main.py
+
+# 显示全部信息（电池状态、Qi2.2、电芯温度/电压、电芯编号）
 python main.py info
 
-# 显示完整信息（包含电池、电芯等）
-python main.py info --full
-
-# 获取电池信息
-python main.py battery
-
-# 查询 Qi2.2 无线充电状态
-python main.py qi2-status
-
-# 开启 Qi2.2
+# 开启 Qi2.2 无线充电
 python main.py qi2-enable
 
-# 关闭 Qi2.2
+# 关闭 Qi2.2 无线充电
 python main.py qi2-disable
 
+# 发送原始十六进制命令
+python main.py raw A5060100C8
+
 # 调试模式（显示 HID 通信日志）
-python main.py --debug info --full
+python main.py --debug info
+```
+
+### 交互模式
+
+不带参数运行进入交互模式，设备保持连接：
+
+```
+xiaomi-pb> info
+xiaomi-pb> qi2-enable
+xiaomi-pb> qi2-disable
+xiaomi-pb> raw A5060100C8
+xiaomi-pb> help
+xiaomi-pb> exit
+```
+
+输出示例：
+
+```
+温度点 (1 个):
+  #1: 25°C
+电芯状态 (2 节):
+  #1: 4512mV  0mA
+  #2: 4520mV  0mA
+
+电芯编号信息:
+  #1: 编码=ATLNWSAR...  生产日期=2026-03-15  厂商代码=ATLN
+  #2: 编码=ATLNWSAX...  生产日期=2026-03-15  厂商代码=ATLN
 ```
 
 ## 支持的设备
@@ -98,9 +121,54 @@ sudo udevadm trigger
 ## 通信协议
 
 协议基于 WebHID 逆向分析：
+
 - 帧格式: `HEAD(0xA5) + CMD + LEN + payload + CRC8`
 - 帧长度: 32 字节
 - CRC-8 多项式: 0x07
+
+### 命令列表
+
+| 发送 CMD | 响应 CMD | 名称 |
+|----------|----------|------|
+| 0x00 | 0x10 | Hello（握手/心跳） |
+| 0x01 | 0x11 | 获取电池信息 |
+| 0x02 | 0x12 | 获取电芯状态 |
+| 0x03 | 0x13 | 获取历史记录 |
+| 0x04 | 0x14 | 获取电芯编号 |
+| 0x05 | — | 断开连接 |
+| 0x06 | 0x16 | 设置 Qi2.2 |
+| 0x07 | 0x17 | 查询 Qi2.2 状态 |
+| 0x08 | 0x18 | 电芯温度阈值与型号 |
+| 0x0A | — | 心跳（复用 Hello 帧） |
+
+### Hello 帧格式
+
+```
+A5 00 0D <4字节时间戳> xiaomi-pb <CRC8>  填充到32字节
+```
+
+### 电芯状态帧格式
+
+请求: `A5 02 02 01 <cell_count> <CRC8>`
+
+响应每5字节一组描述一节电芯: `温度(1B,有符号) + 电压(2B, LE) + 电流(2B, LE)`
+
+温度值 `-127` (0x81) 表示无传感器。
+
+### 电芯编号(ID)帧格式
+
+请求: `A5 04 01 <cell_index> <CRC8>`
+
+响应: `状态(1B) + 电芯序号(1B) + ID字符串(ASCII, 最大29B, 空终止)`
+
+ID 字符串格式（9 位固定码）：
+- 第 1-4 位: 电芯厂商代码 (ATLN=宁德新能源, EVE1=亿纬锂能, etc.)
+- 第 5 位: 产品类型
+- 第 6 位: 电池类型
+- 第 7 位: 年份编码 (F=2025, G=2026, ...)
+- 第 8 位: 月份编码 (1-9, A=10, B=11, C=12)
+- 第 9 位: 日编码 (1-9, A=10, ..., 0=31)
+- 第 10 位起: 分隔符 + 校验码 + 小米编码 + 可变数据
 
 ## 致谢
 
